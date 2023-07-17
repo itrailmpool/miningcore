@@ -117,7 +117,8 @@ public class StatsRecorder : BackgroundService
             if (result.Length > 0)
             {
                 // pool miners
-                pool.PoolStats.ConnectedMiners = byMiner.Length; // update connected miners
+                var byWorker = result.GroupBy(x => x.Worker).ToArray();
+                pool.PoolStats.ConnectedMiners = byWorker.Length; // update connected miners
 
                 // Stats calc windows
                 var timeFrameBeforeFirstShare = ((result.Min(x => x.FirstShare) - timeFrom).TotalSeconds);
