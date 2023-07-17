@@ -119,6 +119,7 @@ public class BitcoinPool : PoolBase
 
             // extract control vars from password
             var staticDiff = GetStaticDiffFromPassparts(passParts);
+            logger.Info(() => $"[{connection.ConnectionId}] Current static difficulty is {staticDiff.Value}");
 
             // Static diff
             if(staticDiff.HasValue &&
