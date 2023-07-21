@@ -20,6 +20,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NLog;
 using static Miningcore.Util.ActionUtils;
+using Contract = Miningcore.Contracts.Contract;
 
 namespace Miningcore.Blockchain.Bitcoin;
 
@@ -34,14 +35,20 @@ public class BitcoinPool : PoolBase
         IMasterClock clock,
         IMessageBus messageBus,
         RecyclableMemoryStreamManager rmsm,
-        NicehashService nicehashService) :
+        NicehashService nicehashService,
+        IMinerRepository minerRepo) :
         base(ctx, serializerSettings, cf, statsRepo, mapper, clock, messageBus, rmsm, nicehashService)
     {
+        Contract.RequiresNonNull(minerRepo);
+
+        this.minerRepo = minerRepo; 
     }
 
+    protected readonly IMinerRepository minerRepo;
     protected object currentJobParams;
     protected BitcoinJobManager manager;
     private BitcoinTemplate coin;
+
 
     protected virtual async Task OnSubscribeAsync(StratumConnection connection, Timestamped<JsonRpcRequest> tsRequest)
     {
@@ -86,6 +93,21 @@ public class BitcoinPool : PoolBase
         await connection.NotifyAsync(BitcoinStratumMethods.MiningNotify, currentJobParams);
     }
 
+    private async Task<string> GetWorkerAddressByCredentials(string workerName, string password)
+    {
+        if(string.IsNullOrEmpty(workerName) || string.IsNullOrEmpty(password))
+            return null;
+
+        var poolId = poolConfig.Id;
+        var passwordHash = HashingUtils.ComputeSha256Hash(password);
+
+        return await cf.RunTx(async (con, tx) =>
+        {
+            var address = await minerRepo.GetWorkerAddressAsync(con, tx, poolId, workerName, passwordHash);
+            return address;
+        });
+    }
+
     protected virtual async Task OnAuthorizeAsync(StratumConnection connection, Timestamped<JsonRpcRequest> tsRequest, CancellationToken ct)
     {
         var request = tsRequest.Value;
@@ -101,13 +123,13 @@ public class BitcoinPool : PoolBase
 
         // extract worker/miner
         var split = workerValue?.Split('.');
-        var minerName = split?.FirstOrDefault()?.Trim();
-        var workerName = string.Join(".", split.Skip(1))?.Trim() ?? string.Empty;
+        var workerName = split?.FirstOrDefault()?.Trim();
+        var minerName = await GetWorkerAddressByCredentials(workerName, password);
 
         // assumes that minerName is an address
         context.IsAuthorized = await manager.ValidateAddressAsync(minerName, ct);
         context.Miner = minerName;
-        context.Worker = workerName;
+        context.Worker = workerValue;
 
         if(context.IsAuthorized)
         {
@@ -119,10 +141,8 @@ public class BitcoinPool : PoolBase
 
             // extract control vars from password
             var staticDiff = GetStaticDiffFromPassparts(passParts);
-            logger.Info(() => $"[{connection.ConnectionId}] Current static difficulty is {staticDiff.Value}");
-
             // Static diff
-            if(staticDiff.HasValue &&
+             if(staticDiff.HasValue &&
                (context.VarDiff != null && staticDiff.Value >= context.VarDiff.Config.MinDiff ||
                    context.VarDiff == null && staticDiff.Value > context.Difficulty))
             {
@@ -397,6 +417,7 @@ public class BitcoinPool : PoolBase
 
         blockchainStats = manager.BlockchainStats;
     }
+
 
     protected override WorkerContextBase CreateWorkerContext()
     {
