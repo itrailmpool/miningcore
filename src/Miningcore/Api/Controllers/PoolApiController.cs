@@ -576,18 +576,18 @@ public class PoolApiController : ApiControllerBase
         return result;
     }
 
-    [HttpGet("{poolId}/miners/{address}/settings")]
-    public async Task<Responses.MinerSettings> GetMinerSettingsAsync(string poolId, string address)
+    [HttpGet("{poolId}/miners/{worker}/settings")]
+    public async Task<Responses.MinerSettings> GetMinerSettingsAsync(string poolId, string worker)
     {
         var pool = GetPool(poolId);
 
-        if(string.IsNullOrEmpty(address))
-            throw new ApiException("Invalid or missing miner address", HttpStatusCode.NotFound);
+        if(string.IsNullOrEmpty(worker))
+            throw new ApiException("Invalid or missing miner worker name", HttpStatusCode.NotFound);
 
         if(pool.Template.Family == CoinFamily.Ethereum)
-            address = address.ToLower();
+            worker = worker.ToLower();
 
-        var result = await cf.Run(con=> minerRepo.GetSettingsAsync(con, null, pool.Id, address));
+        var result = await cf.Run(con=> minerRepo.GetSettingsAsync(con, null, pool.Id, worker));
 
         if(result == null)
             throw new ApiException("No settings found", HttpStatusCode.NotFound);
