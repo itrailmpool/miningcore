@@ -57,6 +57,7 @@ public class AutoMapperProfile : Profile
         CreateMap<PoolStats, Api.Responses.AggregatedPoolStats>();
         CreateMap<Block, Api.Responses.Block>();
         CreateMap<MinerSettings, Api.Responses.MinerSettings>();
+        CreateMap<MinerSettings, Api.Requests.MinerSettings>();
         CreateMap<Payment, Api.Responses.Payment>();
         CreateMap<BalanceChange, Api.Responses.BalanceChange>();
         CreateMap<PoolPaymentProcessingConfig, Api.Responses.ApiPoolPaymentProcessingConfig>();
@@ -85,6 +86,7 @@ public class AutoMapperProfile : Profile
 
         // API
         CreateMap<Api.Responses.MinerSettings, MinerSettings>();
+        CreateMap<Api.Requests.MinerSettings, MinerSettings>();
 
         // PostgreSQL
         CreateMap<Persistence.Postgres.Entities.Share, Persistence.Model.Share>();
