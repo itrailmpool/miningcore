@@ -131,8 +131,8 @@ public class BitcoinPool : PoolBase
         if(isAddress)
         {
             minerName = username;
-            var workerName = split?.Skip(1).FirstOrDefault()?.Trim() ?? string.Empty;
-
+            var workerName = string.Join(".", split.Skip(1))?.Trim() ?? string.Empty;
+            
             // assumes that minerName is an address
             context.IsAuthorized = isAddress;
             context.Miner = minerName;
