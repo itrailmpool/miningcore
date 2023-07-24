@@ -123,14 +123,33 @@ public class BitcoinPool : PoolBase
 
         // extract worker/miner
         var split = workerValue?.Split('.');
-        var workerName = split?.FirstOrDefault()?.Trim();
-        var minerName = await GetWorkerAddressByCredentials(workerName, password);
+        var username = split?.FirstOrDefault()?.Trim();
+        var isAddress = await manager.ValidateAddressAsync(username, ct);
+        var minerName = string.Empty;
 
-        // assumes that minerName is an address
-        context.IsAuthorized = await manager.ValidateAddressAsync(minerName, ct);
-        context.Miner = minerName;
-        context.Worker = workerValue;
+        // isAddress check was created for backwards compatibility only - remove it after switching to the new approach
+        if(isAddress)
+        {
+            minerName = username;
+            var workerName = string.Join(".", split.Skip(1))?.Trim() ?? string.Empty;
+            
+            // assumes that minerName is an address
+            context.IsAuthorized = isAddress;
+            context.Miner = minerName;
+            context.Worker = workerName;
+        }
+        else
+        {
+            //valid flow: we should retrieve address from db
+            minerName = await GetWorkerAddressByCredentials(username, password);
+            var workerName = workerValue;
 
+            // assumes that minerName is an address
+            context.IsAuthorized = await manager.ValidateAddressAsync(minerName, ct);
+            context.Miner = minerName;
+            context.Worker = workerName;
+        }
+        
         if(context.IsAuthorized)
         {
             // respond
