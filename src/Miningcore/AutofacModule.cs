@@ -109,6 +109,9 @@ public class AutofacModule : Module
 
         builder.RegisterType<ShareRecorder>()
             .SingleInstance();
+       
+        builder.RegisterType<ShareStatisticRecorder>()
+            .SingleInstance();
 
         builder.RegisterType<ShareReceiver>()
             .SingleInstance();
