@@ -82,7 +82,7 @@ public class ShareStatisticRecorder : BackgroundService
         logger.Info(() => "Online PersistSharesCoreAsync");
         await cf.RunTx(async (con, tx) =>
         {
-            logger.Info(() => "Online PersistSharesCoreAsync");
+            logger.Info(() => "Online PersistSharesCoreAsync run");
             // Insert shares
             var mapped = shares.Select(mapper.Map<Persistence.Model.ShareStatistic>).ToArray();
             await shareStatisticRepo.BatchInsertAsync(con, tx, mapped, CancellationToken.None);
