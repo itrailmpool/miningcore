@@ -79,8 +79,10 @@ public class ShareStatisticRecorder : BackgroundService
 
     private async Task PersistSharesCoreAsync(IList<ShareStatistic> shares)
     {
+        logger.Info(() => "Online PersistSharesCoreAsync");
         await cf.RunTx(async (con, tx) =>
         {
+            logger.Info(() => "Online PersistSharesCoreAsync");
             // Insert shares
             var mapped = shares.Select(mapper.Map<Persistence.Model.ShareStatistic>).ToArray();
             await shareStatisticRepo.BatchInsertAsync(con, tx, mapped, CancellationToken.None);
@@ -300,7 +302,7 @@ public class ShareStatisticRecorder : BackgroundService
 
     protected override Task ExecuteAsync(CancellationToken ct)
     {
-        logger.Info(() => "Online");
+        logger.Info(() => "Online ShareStatisticRecorder");
 
         return messageBus.Listen<StratumShareStatistic>()
             .ObserveOn(TaskPoolScheduler.Default)
