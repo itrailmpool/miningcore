@@ -296,10 +296,10 @@ public class BitcoinPool : PoolBase
             shareStatistic.Miner = context.Miner;
             shareStatistic.Worker = workerName;
             shareStatistic.Device = device;
-            share.UserAgent = context.UserAgent;
+            shareStatistic.UserAgent = context.UserAgent;
             shareStatistic.IpAddress = connection.RemoteEndpoint.Address.ToString();
-            share.Source = clusterConfig.ClusterName;
-            share.Created = clock.Now;
+            shareStatistic.Source = clusterConfig.ClusterName;
+            shareStatistic.Created = clock.Now;
             shareStatistic.IsValid = false;
         }
         
