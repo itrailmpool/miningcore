@@ -239,6 +239,9 @@ public class BitcoinPool : PoolBase
             // update client stats
             context.Stats.ValidShares++;
 
+            // publish
+            messageBus.SendMessage(new StratumShareStatistic(connection, BuildShareStatistic(context, share, connection)));
+            
             await UpdateVarDiffAsync(connection, false, ct);
         }
 
@@ -250,12 +253,57 @@ public class BitcoinPool : PoolBase
             // update client stats
             context.Stats.InvalidShares++;
             logger.Info(() => $"[{connection.ConnectionId}] Share rejected: {ex.Message} [{context.UserAgent}]");
-
+            
+            // publish
+            messageBus.SendMessage(new StratumShareStatistic(connection, BuildShareStatistic(context, null, connection)));
+            
             // banning
             ConsiderBan(connection, context, poolConfig.Banning);
 
             throw;
         }
+    }
+
+    private ShareStatistic BuildShareStatistic(BitcoinWorkerContext context, Share share, StratumConnection connection)
+    {
+        var workerValue = context.Worker;
+        var split = workerValue?.Split('.');
+        var workerName = split?.FirstOrDefault()?.Trim();
+        var device = string.Join(".", split.Skip(1))?.Trim() ?? string.Empty;
+        
+        var shareStatistic = new ShareStatistic();
+        if(share != null)
+        {
+            shareStatistic.PoolId = share.PoolId;
+            shareStatistic.BlockHeight = share.BlockHeight;
+            shareStatistic.Difficulty = share.Difficulty;
+            shareStatistic.NetworkDifficulty = share.NetworkDifficulty;
+            shareStatistic.Miner = share.Miner;
+            shareStatistic.Worker = workerName;
+            shareStatistic.Device = device;
+            shareStatistic.UserAgent = share.UserAgent;
+            shareStatistic.IpAddress = share.IpAddress;
+            shareStatistic.Source = share.Source;
+            shareStatistic.Created = share.Created;
+            shareStatistic.IsValid = true;
+        }
+        else
+        {
+            shareStatistic.PoolId = poolConfig.Id;
+            shareStatistic.BlockHeight = -1;
+            shareStatistic.Difficulty = 0;
+            shareStatistic.NetworkDifficulty = 0;
+            shareStatistic.Miner = context.Miner;
+            shareStatistic.Worker = workerName;
+            shareStatistic.Device = device;
+            share.UserAgent = context.UserAgent;
+            shareStatistic.IpAddress = connection.RemoteEndpoint.Address.ToString();
+            share.Source = clusterConfig.ClusterName;
+            share.Created = clock.Now;
+            shareStatistic.IsValid = false;
+        }
+        
+        return shareStatistic;
     }
 
     private async Task OnSuggestDifficultyAsync(StratumConnection connection, Timestamped<JsonRpcRequest> tsRequest)
