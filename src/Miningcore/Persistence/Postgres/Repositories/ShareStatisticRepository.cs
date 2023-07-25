@@ -16,7 +16,6 @@ public class ShareStatisticRepository : IShareStatisticRepository
         this.mapper = mapper;
     }
 
-    private static readonly ILogger logger = LogManager.GetCurrentClassLogger();
     private readonly IMapper mapper;
 
     public async Task BatchInsertAsync(IDbConnection con, IDbTransaction tx, IEnumerable<ShareStatistic> shares, CancellationToken ct)
@@ -25,7 +24,6 @@ public class ShareStatisticRepository : IShareStatisticRepository
         // the COPY command still honors a current ambient transaction
 
         var pgCon = (NpgsqlConnection) con;
-        logger.Info(() => "ShareStatisticRepository batch insert");
 
         const string query = @"COPY shares_statistic (poolid, blockheight, difficulty,
             networkdifficulty, miner, worker, useragent, ipaddress, source, created, isvalid, device) FROM STDIN (FORMAT BINARY)";
