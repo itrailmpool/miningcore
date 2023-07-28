@@ -264,7 +264,7 @@ public class StatsRecorder : BackgroundService
                     {
                         var parts = item.Split(keySeparator);
                         var miner = parts[0];
-                        var worker = parts.Length > 1 ? parts[1] : null;
+                        var worker = parts.Length > 1 ? string.Join(keySeparator, parts.Skip(1))?.Trim() : null;
 
                         stats.Miner = miner;
                         stats.Worker = worker;
