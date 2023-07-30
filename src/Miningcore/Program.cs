@@ -293,6 +293,7 @@ public class Program : BackgroundService
         if(clusterConfig.ShareRelay == null)
         {
             services.AddHostedService<ShareRecorder>();
+            services.AddHostedService<ShareStatisticRecorder>();
             services.AddHostedService<ShareReceiver>();
         }
 

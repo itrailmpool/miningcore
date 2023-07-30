@@ -21,7 +21,8 @@ public class AutoMapperProfile : Profile
         // outgoing mappings
 
         CreateMap<Blockchain.Share, Persistence.Model.Share>();
-
+        CreateMap<Blockchain.ShareStatistic, Persistence.Model.ShareStatistic>();
+        
         CreateMap<Blockchain.Share, Block>()
             .ForMember(dest => dest.Reward, opt => opt.MapFrom(src => src.BlockReward))
             .ForMember(dest => dest.Hash, opt => opt.MapFrom(src => src.BlockHash))
@@ -72,6 +73,7 @@ public class AutoMapperProfile : Profile
 
         // PostgreSQL
         CreateMap<Persistence.Model.Share, Persistence.Postgres.Entities.Share>();
+        CreateMap<Persistence.Model.ShareStatistic, Persistence.Postgres.Entities.ShareStatistic>();
         CreateMap<Block, Persistence.Postgres.Entities.Block>();
         CreateMap<Balance, Persistence.Postgres.Entities.Balance>();
         CreateMap<Payment, Persistence.Postgres.Entities.Payment>();
@@ -90,6 +92,7 @@ public class AutoMapperProfile : Profile
 
         // PostgreSQL
         CreateMap<Persistence.Postgres.Entities.Share, Persistence.Model.Share>();
+        CreateMap<Persistence.Postgres.Entities.ShareStatistic, Persistence.Model.ShareStatistic>();
         CreateMap<Persistence.Postgres.Entities.Block, Block>();
         CreateMap<Persistence.Postgres.Entities.Balance, Balance>();
         CreateMap<Persistence.Postgres.Entities.Payment, Payment>();
