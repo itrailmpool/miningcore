@@ -290,7 +290,7 @@ public class BitcoinPool : PoolBase
         else
         {
             shareStatistic.PoolId = poolConfig.Id;
-            shareStatistic.BlockHeight = -1;
+            shareStatistic.BlockHeight = 0;
             shareStatistic.Difficulty = 0;
             shareStatistic.NetworkDifficulty = 0;
             shareStatistic.Miner = context.Miner;
