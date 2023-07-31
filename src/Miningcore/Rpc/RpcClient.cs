@@ -64,6 +64,11 @@ public class RpcClient
 
         try
         {
+            if(payload != null)
+            {
+                logger.Info(() => $"[RPCClient] Sending RPC request. Method: {method}, Payload: {JsonConvert.SerializeObject(payload)}");
+            }
+
             var response = await RequestAsync(logger, ct, config, method, payload);
 
             if(response.Result is JToken token)
