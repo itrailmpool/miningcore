@@ -66,7 +66,7 @@ public class RpcClient
         {
             if(payload != null)
             {
-                logger.Info(() => $"[RPCClient] Sending RPC request. Method: {method}, Payload: {JsonConvert.SerializeObject(payload)}");
+                logger.Debug(() => $"[RPCClient] Sending RPC request. Method: {method}, Payload: {JsonConvert.SerializeObject(payload)}");
             }
 
             var response = await RequestAsync(logger, ct, config, method, payload);
