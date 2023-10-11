@@ -264,7 +264,7 @@ public class StatsRecorder : BackgroundService
                     {
                         var parts = item.Split(keySeparator);
                         var miner = parts[0];
-                        var worker = parts.Length > 1 ? parts[1] : null;
+                        var worker = parts.Length > 1 ? string.Join(keySeparator, parts.Skip(1))?.Trim() : null;
 
                         stats.Miner = miner;
                         stats.Worker = worker;
@@ -309,25 +309,50 @@ public class StatsRecorder : BackgroundService
 
     private async Task UpdateAsync(CancellationToken ct)
     {
-        using var timer = new PeriodicTimer(updateInterval);
+        int updateIntervalInSeconds = clusterConfig.Statistics?.UpdateInterval ?? 120;
 
-        do
+        if (updateIntervalInSeconds == 0)
         {
-            try
-            {
-                await UpdatePoolHashratesAsync(ct);
-            }
+            TimeSpan logNotificationInerval = TimeSpan.FromSeconds(300);
+            using var timer = new PeriodicTimer(logNotificationInerval);
 
-            catch(OperationCanceledException)
+            do
             {
-                // ignored
-            }
+                try
+                {
+                    logger.Info(() => "Statistics update skipped. updateInterval value is [ 0 ]");
+                }
+                catch(OperationCanceledException)
+                {
+                    // ignored
+                }
+                catch(Exception ex)
+                {
+                    logger.Error(ex);
+                }
+            } while(await timer.WaitForNextTickAsync(ct));
+        } else
+        {
+            using var timer = new PeriodicTimer(updateInterval);
 
-            catch(Exception ex)
+            do
             {
-                logger.Error(ex);
-            }
-        } while(await timer.WaitForNextTickAsync(ct));
+                try
+                {
+                    await UpdatePoolHashratesAsync(ct);
+                }
+
+                catch(OperationCanceledException)
+                {
+                    // ignored
+                }
+
+                catch(Exception ex)
+                {
+                    logger.Error(ex);
+                }
+            } while(await timer.WaitForNextTickAsync(ct));
+        }
     }
 
     private async Task GcAsync(CancellationToken ct)

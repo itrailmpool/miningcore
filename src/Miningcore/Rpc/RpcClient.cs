@@ -218,7 +218,7 @@ public class RpcClient
                 request.Headers.Authorization = new AuthenticationHeaderValue("Basic", auth.ToByteArrayBase64());
             }
 
-            logger.Trace(() => $"Sending RPC request to {requestUrl}: {json}");
+            logger.Debug(() => $"Sending RPC request to {requestUrl}: {json}");
 
             // send request
             using(var response = await httpClient.SendAsync(request, ct))
@@ -226,7 +226,7 @@ public class RpcClient
                 // deserialize response
                 var responseContent = await response.Content.ReadAsStringAsync(ct);
 
-                logger.Trace(() => $"Received RPC response: {responseContent}");
+                logger.Debug(() => $"Received RPC response: {responseContent}");
 
                 using(var jreader = new JsonTextReader(new StringReader(responseContent)))
                 {

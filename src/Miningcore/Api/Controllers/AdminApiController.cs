@@ -7,6 +7,7 @@ using Miningcore.Util;
 using System.Collections.Concurrent;
 using System.Net;
 using NLog;
+using Miningcore.Blockchain;
 
 namespace Miningcore.Api.Controllers;
 
@@ -58,15 +59,15 @@ public class AdminApiController : ApiControllerBase
         return await cf.Run(con => balanceRepo.GetBalanceAsync(con, poolId, address));
     }
 
-    [HttpGet("pools/{poolId}/miners/{address}/settings")]
-    public async Task<Responses.MinerSettings> GetMinerSettingsAsync(string poolId, string address)
+    [HttpGet("pools/{poolId}/miners/{worker}/settings")]
+    public async Task<Responses.MinerSettings> GetMinerSettingsAsync(string poolId, string worker)
     {
         var pool = GetPool(poolId);
 
-        if(string.IsNullOrEmpty(address))
-            throw new ApiException("Invalid or missing miner address", HttpStatusCode.NotFound);
+        if(string.IsNullOrEmpty(worker))
+            throw new ApiException("Invalid or missing worker name", HttpStatusCode.NotFound);
 
-        var result = await cf.Run(con=> minerRepo.GetSettingsAsync(con, null, pool.Id, address));
+        var result = await cf.Run(con=> minerRepo.GetSettingsAsync(con, null, pool.Id, worker));
 
         if(result == null)
             throw new ApiException("No settings found", HttpStatusCode.NotFound);
@@ -74,39 +75,39 @@ public class AdminApiController : ApiControllerBase
         return mapper.Map<Responses.MinerSettings>(result);
     }
 
-    [HttpPost("pools/{poolId}/miners/{address}/settings")]
-    public async Task<Responses.MinerSettings> SetMinerSettingsAsync(string poolId, string address,
-        [FromBody] Responses.MinerSettings settings)
+    [HttpPost("pools/{poolId}/miners/{worker}/settings")]
+    public async Task<Requests.MinerSettings> SetMinerSettingsAsync(string poolId, string worker,
+      [FromBody] Requests.AddMinerRequest request, CancellationToken ct)
     {
         var pool = GetPool(poolId);
 
-        if(string.IsNullOrEmpty(address))
-            throw new ApiException("Invalid or missing miner address", HttpStatusCode.NotFound);
+        if(string.IsNullOrEmpty(worker))
+            throw new ApiException("Invalid or missing worker name", HttpStatusCode.NotFound);
 
-        if(settings == null)
+        if(request?.Settings == null)
             throw new ApiException("Invalid or missing settings", HttpStatusCode.BadRequest);
 
         // map settings
-        var mapped = mapper.Map<Persistence.Model.MinerSettings>(settings);
+        var mapped = mapper.Map<Persistence.Model.MinerSettings>(request.Settings);
 
         // clamp limit
         if(pool.PaymentProcessing != null)
             mapped.PaymentThreshold = Math.Max(mapped.PaymentThreshold, pool.PaymentProcessing.MinimumPayment);
 
         mapped.PoolId = pool.Id;
-        mapped.Address = address;
+        mapped.WorkerName = worker;
+        mapped.Password = HashingUtils.ComputeSha256Hash(mapped.Password);
 
-        var result = await cf.RunTx(async (con, tx) =>
+        // finally update the settings
+        return await cf.RunTx(async (con, tx) =>
         {
             await minerRepo.UpdateSettingsAsync(con, tx, mapped);
 
-            return await minerRepo.GetSettingsAsync(con, tx, mapped.PoolId, mapped.Address);
+            logger.Info(() => $"Updated settings for pool {pool.Id}, worker name {mapped.WorkerName}");
+
+            var result = await minerRepo.GetSettingsAsync(con, tx, mapped.PoolId, mapped.WorkerName);
+            return mapper.Map<Requests.MinerSettings>(result);
         });
-
-        logger.Info(()=> $"Updated settings for pool {pool.Id}, miner {address}");
-
-        return mapper.Map<Responses.MinerSettings>(result);
     }
-
     #endregion // Actions
 }

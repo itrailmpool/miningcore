@@ -20,6 +20,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NLog;
 using static Miningcore.Util.ActionUtils;
+using Contract = Miningcore.Contracts.Contract;
 
 namespace Miningcore.Blockchain.Bitcoin;
 
@@ -34,14 +35,33 @@ public class BitcoinPool : PoolBase
         IMasterClock clock,
         IMessageBus messageBus,
         RecyclableMemoryStreamManager rmsm,
-        NicehashService nicehashService) :
+        NicehashService nicehashService,
+        IMinerRepository minerRepo) :
         base(ctx, serializerSettings, cf, statsRepo, mapper, clock, messageBus, rmsm, nicehashService)
     {
+        Contract.RequiresNonNull(minerRepo);
+
+        this.minerRepo = minerRepo; 
+        this.addressesCacheClearTimer = new Timer(ClearAddressesCache, null, TimeSpan.FromHours(1), TimeSpan.FromHours(1));
     }
 
+    protected readonly IMinerRepository minerRepo;
     protected object currentJobParams;
     protected BitcoinJobManager manager;
     private BitcoinTemplate coin;
+    private readonly Dictionary<string, string> addressesCache = new Dictionary<string, string>();
+    private readonly Timer addressesCacheClearTimer;
+
+    private void ClearAddressesCache(object state) {
+        //Clear the cache
+        addressesCache.Clear();
+        logger.Info(() => $"addresses cache cleared");
+    }
+    
+    private void Dispose() {
+        //Dispose the timer when the service is disposed
+        addressesCacheClearTimer.Dispose();
+    }
 
     protected virtual async Task OnSubscribeAsync(StratumConnection connection, Timestamped<JsonRpcRequest> tsRequest)
     {
@@ -86,6 +106,29 @@ public class BitcoinPool : PoolBase
         await connection.NotifyAsync(BitcoinStratumMethods.MiningNotify, currentJobParams);
     }
 
+    private async Task<string> GetWorkerAddressByCredentials(string workerName, string password)
+    {
+        if(string.IsNullOrEmpty(workerName) || string.IsNullOrEmpty(password))
+            return null;
+
+        var poolId = poolConfig.Id;
+        var passwordHash = HashingUtils.ComputeSha256Hash(password);
+
+        var key = workerName + ":" + passwordHash;
+        if (addressesCache.ContainsKey(key))
+        {
+            return addressesCache[key];
+        }
+
+        return await cf.RunTx(async (con, tx) =>
+        {
+            var address = await minerRepo.GetWorkerAddressAsync(con, tx, poolId, workerName, passwordHash);
+            addressesCache.Add(key, address);
+
+            return address;
+        });
+    }
+
     protected virtual async Task OnAuthorizeAsync(StratumConnection connection, Timestamped<JsonRpcRequest> tsRequest, CancellationToken ct)
     {
         var request = tsRequest.Value;
@@ -101,14 +144,35 @@ public class BitcoinPool : PoolBase
 
         // extract worker/miner
         var split = workerValue?.Split('.');
-        var minerName = split?.FirstOrDefault()?.Trim();
-        var workerName = string.Join(".", split.Skip(1))?.Trim() ?? string.Empty;
+        var username = split?.FirstOrDefault()?.Trim();
+        var isAddress = await manager.ValidateAddressAsync(username, ct);
+        var minerName = string.Empty;
+        logger.Info(() => $"[{connection.ConnectionId}] Auth request: worker [{workerValue}] password [{password}]");
 
-        // assumes that minerName is an address
-        context.IsAuthorized = await manager.ValidateAddressAsync(minerName, ct);
-        context.Miner = minerName;
-        context.Worker = workerName;
+        // isAddress check was created for backwards compatibility only - remove it after switching to the new approach
+        if(isAddress)
+        {
+            minerName = username;
+            logger.Info(() => $"[{connection.ConnectionId}] Auth request: minerName [{minerName}]");
+            var workerName = string.Join(".", split.Skip(1))?.Trim() ?? string.Empty;
+            
+            // assumes that minerName is an address
+            context.IsAuthorized = isAddress;
+            context.Miner = minerName;
+            context.Worker = workerName;
+        }
+        else
+        {
+            //valid flow: we should retrieve address from db
+            minerName = await GetWorkerAddressByCredentials(username, password);
+            var workerName = workerValue;
 
+            // assumes that minerName is an address
+            context.IsAuthorized = await manager.ValidateAddressAsync(minerName, ct);
+            context.Miner = minerName;
+            context.Worker = workerName;
+        }
+        
         if(context.IsAuthorized)
         {
             // respond
@@ -119,10 +183,8 @@ public class BitcoinPool : PoolBase
 
             // extract control vars from password
             var staticDiff = GetStaticDiffFromPassparts(passParts);
-            logger.Info(() => $"[{connection.ConnectionId}] Current static difficulty is {staticDiff.Value}");
-
             // Static diff
-            if(staticDiff.HasValue &&
+             if(staticDiff.HasValue &&
                (context.VarDiff != null && staticDiff.Value >= context.VarDiff.Config.MinDiff ||
                    context.VarDiff == null && staticDiff.Value > context.Difficulty))
             {
@@ -200,6 +262,9 @@ public class BitcoinPool : PoolBase
             // update client stats
             context.Stats.ValidShares++;
 
+            // publish
+            messageBus.SendMessage(new StratumShareStatistic(connection, BuildShareStatistic(context, share, connection)));
+            
             await UpdateVarDiffAsync(connection, false, ct);
         }
 
@@ -211,12 +276,57 @@ public class BitcoinPool : PoolBase
             // update client stats
             context.Stats.InvalidShares++;
             logger.Info(() => $"[{connection.ConnectionId}] Share rejected: {ex.Message} [{context.UserAgent}]");
-
+            
+            // publish
+            messageBus.SendMessage(new StratumShareStatistic(connection, BuildShareStatistic(context, null, connection)));
+            
             // banning
             ConsiderBan(connection, context, poolConfig.Banning);
 
             throw;
         }
+    }
+
+    private ShareStatistic BuildShareStatistic(BitcoinWorkerContext context, Share share, StratumConnection connection)
+    {
+        var workerValue = context.Worker;
+        var split = workerValue?.Split('.');
+        var workerName = split?.FirstOrDefault()?.Trim();
+        var device = string.Join(".", split.Skip(1))?.Trim() ?? string.Empty;
+        
+        var shareStatistic = new ShareStatistic();
+        if(share != null)
+        {
+            shareStatistic.PoolId = share.PoolId;
+            shareStatistic.BlockHeight = share.BlockHeight;
+            shareStatistic.Difficulty = share.Difficulty;
+            shareStatistic.NetworkDifficulty = share.NetworkDifficulty;
+            shareStatistic.Miner = share.Miner;
+            shareStatistic.Worker = workerName;
+            shareStatistic.Device = device;
+            shareStatistic.UserAgent = share.UserAgent;
+            shareStatistic.IpAddress = share.IpAddress;
+            shareStatistic.Source = share.Source;
+            shareStatistic.Created = share.Created;
+            shareStatistic.IsValid = true;
+        }
+        else
+        {
+            shareStatistic.PoolId = poolConfig.Id;
+            shareStatistic.BlockHeight = 0;
+            shareStatistic.Difficulty = 0;
+            shareStatistic.NetworkDifficulty = 0;
+            shareStatistic.Miner = context.Miner;
+            shareStatistic.Worker = workerName;
+            shareStatistic.Device = device;
+            shareStatistic.UserAgent = context.UserAgent;
+            shareStatistic.IpAddress = connection.RemoteEndpoint.Address.ToString();
+            shareStatistic.Source = clusterConfig.ClusterName;
+            shareStatistic.Created = clock.Now;
+            shareStatistic.IsValid = false;
+        }
+        
+        return shareStatistic;
     }
 
     private async Task OnSuggestDifficultyAsync(StratumConnection connection, Timestamped<JsonRpcRequest> tsRequest)
@@ -397,6 +507,7 @@ public class BitcoinPool : PoolBase
 
         blockchainStats = manager.BlockchainStats;
     }
+
 
     protected override WorkerContextBase CreateWorkerContext()
     {

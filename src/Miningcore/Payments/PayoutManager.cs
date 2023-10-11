@@ -163,9 +163,13 @@ public class PayoutManager : BackgroundService
 
                 await cf.RunTx(async (con, tx) =>
                 {
+                
+                    logger.Debug(() => $"Block Effort HasValue: [{block.Effort.HasValue}]");
                     if(!block.Effort.HasValue)  // fill block effort if empty
                         await CalculateBlockEffortAsync(pool, poolConfig, block, handler, ct);
 
+
+                    logger.Debug(() => $"Block status: [{block.Status}]");
                     switch(block.Status)
                     {
                         case BlockStatus.Confirmed:
@@ -226,6 +230,8 @@ public class PayoutManager : BackgroundService
         var from = DateTime.MinValue;
         var to = block.Created;
 
+        logger.Debug(() => $"Get share date-range from [{from}] to [{to}]");
+
         // get last block for pool
         var lastBlock = await cf.Run(con => blockRepo.GetBlockBeforeAsync(con, poolConfig.Id, new[]
         {
@@ -234,11 +240,16 @@ public class PayoutManager : BackgroundService
             BlockStatus.Pending,
         }, block.Created));
 
+        logger.Debug(() => $"get last block for pool [{lastBlock}]");
         if(lastBlock != null)
             from = lastBlock.Created;
-
+        
+        logger.Debug(() => $"Get share date-range from [{from}]");
+ 
         block.Effort = await cf.Run(con =>
             shareRepo.GetEffectiveAccumulatedShareDifficultyBetweenAsync(con, pool.Config.Id, from, to, ct));
+
+        logger.Debug(() => $"Block Effort HasValue: [{block.Effort.HasValue}]");
 
         if(block.Effort.HasValue)
             block.Effort = handler.AdjustBlockEffort(block.Effort.Value);

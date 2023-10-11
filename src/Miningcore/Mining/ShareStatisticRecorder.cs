@@ -11,14 +11,13 @@ using Miningcore.Extensions;
 using Miningcore.Messaging;
 using Miningcore.Notifications.Messages;
 using Miningcore.Persistence;
-using Miningcore.Persistence.Model;
 using Miningcore.Persistence.Repositories;
 using Newtonsoft.Json;
 using NLog;
 using Polly;
 using Polly.CircuitBreaker;
 using Contract = Miningcore.Contracts.Contract;
-using Share = Miningcore.Blockchain.Share;
+using ShareStatistic = Miningcore.Blockchain.ShareStatistic;
 using static Miningcore.Util.ActionUtils;
 
 namespace Miningcore.Mining;
@@ -26,20 +25,18 @@ namespace Miningcore.Mining;
 /// <summary>
 /// Asynchronously persist shares produced by all pools for processing by coin-specific payment processor(s)
 /// </summary>
-public class ShareRecorder : BackgroundService
+public class ShareStatisticRecorder : BackgroundService
 {
-    public ShareRecorder(IConnectionFactory cf,
+    public ShareStatisticRecorder(IConnectionFactory cf,
         IMapper mapper,
         JsonSerializerSettings jsonSerializerSettings,
-        IShareRepository shareRepo,
-        IBlockRepository blockRepo,
+        IShareStatisticRepository shareStatisticRepo,
         ClusterConfig clusterConfig,
         IMessageBus messageBus)
     {
         Contract.RequiresNonNull(cf);
         Contract.RequiresNonNull(mapper);
-        Contract.RequiresNonNull(shareRepo);
-        Contract.RequiresNonNull(blockRepo);
+        Contract.RequiresNonNull(shareStatisticRepo);
         Contract.RequiresNonNull(jsonSerializerSettings);
         Contract.RequiresNonNull(messageBus);
 
@@ -49,8 +46,7 @@ public class ShareRecorder : BackgroundService
         this.messageBus = messageBus;
         this.clusterConfig = clusterConfig;
 
-        this.shareRepo = shareRepo;
-        this.blockRepo = blockRepo;
+        this.shareStatisticRepo = shareStatisticRepo;
 
         pools = clusterConfig.Pools.ToDictionary(x => x.Id, x => x);
 
@@ -59,8 +55,7 @@ public class ShareRecorder : BackgroundService
     }
 
     private static readonly ILogger logger = LogManager.GetCurrentClassLogger();
-    private readonly IShareRepository shareRepo;
-    private readonly IBlockRepository blockRepo;
+    private readonly IShareStatisticRepository shareStatisticRepo;
     private readonly IConnectionFactory cf;
     private readonly JsonSerializerSettings jsonSerializerSettings;
     private readonly IMessageBus messageBus;
@@ -72,39 +67,25 @@ public class ShareRecorder : BackgroundService
     private bool hasLoggedPolicyFallbackFailure;
     private string recoveryFilename;
     private const int RetryCount = 3;
-    private const string PolicyContextKeyShares = "share";
+    private const string PolicyContextKeyShares = "shareStatistic";
     private bool notifiedAdminOnPolicyFallback = false;
 
-    private async Task PersistSharesAsync(IList<Share> shares)
+    private async Task PersistSharesAsync(IList<ShareStatistic> shares)
     {
         var context = new Dictionary<string, object> { { PolicyContextKeyShares, shares } };
 
-        await faultPolicy.ExecuteAsync(ctx => PersistSharesCoreAsync((IList<Share>) ctx[PolicyContextKeyShares]), context);
+        await faultPolicy.ExecuteAsync(ctx => PersistSharesCoreAsync((IList<ShareStatistic>) ctx[PolicyContextKeyShares]), context);
     }
 
-    private async Task PersistSharesCoreAsync(IList<Share> shares)
+    private async Task PersistSharesCoreAsync(IList<ShareStatistic> shares)
     {
+        logger.Info(() => "Online PersistSharesCoreAsync");
         await cf.RunTx(async (con, tx) =>
         {
+            logger.Info(() => "Online PersistSharesCoreAsync run");
             // Insert shares
-            var mapped = shares.Select(mapper.Map<Persistence.Model.Share>).ToArray();
-            await shareRepo.BatchInsertAsync(con, tx, mapped, CancellationToken.None);
-
-            // Insert blocks
-            foreach(var share in shares)
-            {
-                if(!share.IsBlockCandidate)
-                    continue;
-
-                var blockEntity = mapper.Map<Block>(share);
-                blockEntity.Status = BlockStatus.Pending;
-                await blockRepo.InsertAsync(con, tx, blockEntity);
-
-                if(pools.TryGetValue(share.PoolId, out var poolConfig))
-                    messageBus.NotifyBlockFound(share.PoolId, blockEntity, poolConfig.Template);
-                else
-                    logger.Warn(()=> $"Block found for unknown pool {share.PoolId}");
-            }
+            var mapped = shares.Select(mapper.Map<Persistence.Model.ShareStatistic>).ToArray();
+            await shareStatisticRepo.BatchInsertAsync(con, tx, mapped, CancellationToken.None);
         });
     }
 
@@ -121,7 +102,7 @@ public class ShareRecorder : BackgroundService
 
     private async Task OnExecutePolicyFallbackAsync(Context context, CancellationToken ct)
     {
-        var shares = (IList<Share>) context[PolicyContextKeyShares];
+        var shares = (IList<ShareStatistic>) context[PolicyContextKeyShares];
 
         try
         {
@@ -174,7 +155,7 @@ public class ShareRecorder : BackgroundService
             {
                 using(var reader = new StreamReader(stream, new UTF8Encoding(false)))
                 {
-                    var shares = new List<Share>();
+                    var shares = new List<ShareStatistic>();
                     var lastProgressUpdate = DateTime.UtcNow;
 
                     while(!reader.EndOfStream)
@@ -197,7 +178,7 @@ public class ShareRecorder : BackgroundService
                         // parse
                         try
                         {
-                            var share = JsonConvert.DeserializeObject<Share>(line, jsonSerializerSettings);
+                            var share = JsonConvert.DeserializeObject<ShareStatistic>(line, jsonSerializerSettings);
                             shares.Add(share);
                         }
 
@@ -274,16 +255,16 @@ public class ShareRecorder : BackgroundService
         {
             notifiedAdminOnPolicyFallback = true;
 
-            messageBus.SendMessage(new AdminNotification("Share Recorder Policy Fallback",
-                $"The Share Recorder's Policy Fallback has been engaged. Check share recovery file {recoveryFilename}."));
+            messageBus.SendMessage(new AdminNotification("ShareStatistic Recorder Policy Fallback",
+                $"The ShareStatistic Recorder's Policy Fallback has been engaged. Check ShareStatistic recovery file {recoveryFilename}."));
         }
     }
 
     private void ConfigureRecovery()
     {
-        recoveryFilename = !string.IsNullOrEmpty(clusterConfig.ShareRecoveryFile)
-            ? clusterConfig.ShareRecoveryFile
-            : "recovered-shares.txt";
+        recoveryFilename = !string.IsNullOrEmpty(clusterConfig.ShareStatisticRecoveryFile)
+            ? clusterConfig.ShareStatisticRecoveryFile
+            : "recovered-shares-statistic.txt";
     }
 
     private void BuildFaultHandlingPolicy()
@@ -321,12 +302,12 @@ public class ShareRecorder : BackgroundService
 
     protected override Task ExecuteAsync(CancellationToken ct)
     {
-        logger.Info(() => "Online");
+        logger.Info(() => "Online ShareStatisticRecorder");
 
-        return messageBus.Listen<StratumShare>()
+        return messageBus.Listen<StratumShareStatistic>()
             .ObserveOn(TaskPoolScheduler.Default)
-            .Where(x => x.Share != null)
-            .Select(x => x.Share)
+            .Where(x => x.ShareStatistic != null)
+            .Select(x => x.ShareStatistic)
             .Buffer(TimeSpan.FromSeconds(5), 1000)
             .Where(shares => shares.Any())
             .Select(shares => Observable.FromAsync(() =>
